@@ -1,0 +1,97 @@
+% Artigo técnico — UCDB / Redes
+% pdfLaTeX + babel português
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{amsmath}
+
+\title{Otimização de APIs REST e cache HTTP para exposição de datasets massivos}
+\author{Seu Nome \\ Universidade Católica Dom Bosco (UCDB) — Redes}
+\date{2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Este trabalho aborda o problema de disponibilizar, via API REST, conjuntos de dados da ordem de milhões de registros---cenário análogo à publicação de bases estatísticas (por exemplo, dados do IBGE)---sem comprometer estabilidade nem latência do servidor. São discutidas paginação por \emph{offset} versus paginação por \emph{cursor}, compressão algorítmica (Gzip e Brotli), políticas de cache em cabeçalhos (\texttt{Cache-Control}) e redução da verbosidade de payloads JSON. Descreve-se uma implementação em FastAPI com SQLite, documentação OpenAPI, middleware de compressão Gzip e validação condicional com \texttt{ETag} e respostas \texttt{304 Not Modified}, de forma que clientes não retransmitam páginas inalteradas após mudanças globais versionadas do dataset.
+\end{abstract}
+
+\section{Introdução}
+
+Serviços que expõem grandes volumes tabulares pela Web enfrentam limites físicos de memória, CPU e largura de banda. Enviar ``tudo de uma vez'' viola boas práticas REST e tende a causar timeouts, \emph{spikes} de uso de RAM e custo elevado de serialização JSON. A solução usual combina \textbf{paginação}, \textbf{filtros eficientes}, \textbf{compressão na camada HTTP} e \textbf{cache com revalidação} (\emph{conditional requests}).
+
+\section{Fundamentação teórica}
+
+\subsection{Paginação: \emph{offset} versus \emph{cursor}}
+
+A abordagem clássica \texttt{LIMIT $n$ OFFSET $k$}, em muitos SGBDs, exige percorrer ou descartar internamente as primeiras $k$ linhas para entregar a página seguinte, com custo que cresce com $k$. Em bases com milhões de linhas, páginas profundas degradam o tempo de resposta e aumentam carga no disco.
+
+A paginação por \textbf{cursor} utiliza um marcador opaco (tipicamente a chave da última linha retornada) e uma cláusula do tipo ``\texttt{WHERE id > :cursor ORDER BY id LIMIT :n}'', permitindo uso de índice e tempo aproximadamente constante por página. O trade-off é menor ergonomia para ``pular'' arbitrariamente para a página 10\,000 sem percorrer sequência de cursores; em APIs de dados públicos, cursor é frequentemente preferível para leitura sequencial e \emph{streaming} de consumo.
+
+\subsection{Compressão: Gzip e Brotli}
+
+JSON textual apresenta alta redundância; algoritmos como \textbf{Gzip} e \textbf{Brotli} reduzem o número de octetos transmitidos. Há custo de CPU no servidor e no cliente. Em redes lentas ou payloads grandes, a redução de bytes costuma compensar o custo de compressão; em latências muito baixas e corpos pequenos, compressão pode não valer a pena. Em ambientes de produção, Brotli é comum atrás de proxies (nginx, CDN); frameworks minimalistas costumam oferecer Gzip nativamente.
+
+\subsection{Cabeçalhos de cache: \texttt{Cache-Control}}
+
+O cabeçalho \texttt{Cache-Control} orienta caches intermediários (CDN, proxies) e o próprio navegador. Valores como \texttt{private} impedem armazenamento compartilhado indevido de dados sensíveis; \texttt{max-age} define frescor sem revalidação. Para dados que mudam ocasionalmente, combina-se \emph{freshness} curta com \textbf{revalidação condicional} (\texttt{ETag} / \texttt{If-None-Match}), permitindo respostas \texttt{304 Not Modified} sem reenvio do corpo.
+
+\subsection{Verbosidade do JSON}
+
+Nomes de campos longos e estruturas aninhadas sem necessidade aumentam bytes e tempo de parse. Uma modalidade é oferecer representações \textbf{mínimas} (chaves curtas) para consumo programático e representações \textbf{verbosas} para legibilidade humana ou depuração, selecionáveis por parâmetro de consulta, mantendo o mesmo contrato lógico na camada de domínio.
+
+\section{Metodologia}
+
+A solução usa \textbf{FastAPI} e \textbf{SQLite}. Para testes de volume elevado, pode-se carregar milhões de registros sintéticos (identificador, código estilo IBGE, nome, UF e metadados); para dados oficiais, a API dos municípios do IBGE alimenta a base com cerca de 5,5 mil registros. A tabela possui índice primário em \texttt{id} e índice composto \texttt{(uf, id)} para acelerar filtros por unidade federativa combinados à paginação.
+
+O endpoint principal \texttt{GET /items} aceita \texttt{limit}, \texttt{cursor}, \texttt{uf}, \texttt{q} (prefixo textual para uso de índice) e \texttt{fields=minimal|full}. A documentação \textbf{OpenAPI} é gerada automaticamente (\texttt{/docs}, \texttt{/openapi.json}).
+
+Compressão: a API negocia \textbf{Brotli} (\texttt{br}) ou \textbf{Gzip} (\texttt{gzip}) via \texttt{Accept-Encoding}, com limiar mínimo de bytes. Para comparação acadêmica com \textbf{OFFSET}, um endpoint opcional \texttt{/items/debug/offset-page} fica desabilitado por padrão e exige variável de ambiente \texttt{ENABLE\_BENCHMARKS=1}.
+
+\subsection{ETag e validação em larga escala}
+
+Calcular checksum sobre milhões de linhas a cada requisição é inviável. Adota-se uma linha em \texttt{dataset\_meta} com inteiro \texttt{version}, bumpado quando o dataset é recarregado ou atualizado globalmente. O \texttt{ETag} de uma página listada é o hash SHA-256 de uma tupla canônica $(\texttt{version}, \text{parâmetros da consulta})$. Assim, a verificação de \texttt{If-None-Match} custa uma leitura da meta e hash, sem varrer a base. Quando o cliente reenvia o mesmo \texttt{ETag}, a API responde \texttt{304} \textbf{sem executar} a consulta paginada nem serializar JSON.
+
+Para um item individual, o \texttt{ETag} incorpora também o carimbo \texttt{updated\_at}, garantindo invalidação se o registro mudar.
+
+\section{Resultados esperados e medição}
+
+Com paginação por cursor e índices adequados, espera-se latência estável por página mesmo com milhões de linhas na tabela. Com \texttt{OFFSET} elevado, espera-se crescimento marcante do tempo de consulta (medido na aplicação pelo cabeçalho \texttt{X-Query-Time-Ms} e repetível conforme roteiro em \texttt{docs/METRICAS.md}).
+
+A compressão (Gzip/Brotli) deve reduzir o tamanho transferido em listas com \texttt{fields=full}. A segunda requisição idêntica com \texttt{If-None-Match} deve produzir \texttt{304} e corpo vazio, economizando banda proporcional ao tamanho da página.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+Experimento & Indicador sugerido \\
+\midrule
+Cursor vs OFFSET alto & Tempo de consulta (ms) \\
+Gzip/Brotli on/off & Bytes baixados (\texttt{curl} / ferramentas) \\
+304 & Presença de corpo vazio e código HTTP \\
+\bottomrule
+\end{tabular}
+\caption{Experimentos para gráficos do artigo (preencher com medições reais).}
+\end{table}
+
+\section{Conclusão}
+
+A combinação de paginação por cursor, filtros indexáveis, compressão HTTP, políticas de \texttt{Cache-Control} e validação condicional com \texttt{ETag} permite servir datasets massivos de forma sustentável. A implementação mostra que \texttt{304 Not Modified} em escala exige \textbf{metadados de versão} e \textbf{canonicalização de parâmetros}, não recomputação sobre todo o conjunto.
+
+\begin{thebibliography}{9}
+\bibitem{fielding}
+Fielding, R. T. \emph{Architectural Styles and the Design of Network-based Software Architectures}. Tese de doutorado, UC Irvine, 2000.
+
+\bibitem{rfc9110}
+Fielding, R., Nottingham, M. \emph{HTTP Semantics}. RFC 9110, IETF, 2022. Disponível em: \url{https://www.rfc-editor.org/rfc/rfc9110}
+
+\bibitem{fastapi}
+Ramírez, S. \emph{FastAPI}. Documentação oficial. \url{https://fastapi.tiangolo.com/}
+\end{thebibliography}
+
+\end{document}

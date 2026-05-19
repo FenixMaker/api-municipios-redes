@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" role="img" aria-label="API Municípios REDES">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#115e59"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="16" width="88" height="88" rx="20" fill="url(#g)"/>
+  <path d="M32 72 L52 44 L68 58 L88 36" fill="none" stroke="#ecfdf5" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="68" cy="78" r="6" fill="#ecfdf5"/>
+  <text x="112" y="52" font-family="Segoe UI, system-ui, sans-serif" font-size="34" font-weight="700" fill="#134e4a">API Municípios</text>
+  <text x="114" y="82" font-family="Segoe UI, system-ui, sans-serif" font-size="20" fill="#57534e">REDES · REST · IBGE</text>
+</svg>
