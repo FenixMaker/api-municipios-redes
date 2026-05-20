@@ -1,4 +1,15 @@
 @echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+if not defined ROOT (
+  echo [ERRO] _venv-setup.bat exige ROOT ^(execute _portable-init.bat antes^).
+  exit /b 1
+)
+if not defined PY (
+  echo [ERRO] _venv-setup.bat exige PY ^(execute _portable-init.bat antes^).
+  exit /b 1
+)
+
 set "PYEXE=%ROOT%\.venv\Scripts\python.exe"
 
 if not exist "%ROOT%\requirements.txt" (
@@ -7,27 +18,29 @@ if not exist "%ROOT%\requirements.txt" (
   exit /b 1
 )
 
-call :VenvReady
+call :VenvUsable
 if not errorlevel 1 (
-  echo Dependencias OK - pulando pip install.
+  echo Dependencias OK ^(.venv deste PC^).
+  endlocal & set "PYEXE=%PYEXE%"
   exit /b 0
 )
 
-if exist "%PYEXE%" (
-  echo [AVISO] .venv incompleto ou corrompido - recriando...
+if exist "%ROOT%\.venv" (
+  echo [AVISO] .venv ausente, corrompido ou de outro computador — recriando...
   rmdir /s /q "%ROOT%\.venv" 2>nul
+  timeout /t 1 /nobreak >nul
 )
 
 echo [1/2] Criando ambiente virtual .venv ...
 "%PY%" %PYARGS% -m venv "%ROOT%\.venv"
 if errorlevel 1 (
-  echo [ERRO] Falha ao criar .venv
+  echo [ERRO] Falha ao criar .venv. Verifique se o Python esta instalado corretamente.
   exit /b 1
 )
 set "PYEXE=%ROOT%\.venv\Scripts\python.exe"
 
 echo [2/2] Instalando dependencias ^(1-3 min na 1a vez, aguarde^)...
-"%PYEXE%" -m pip install --upgrade pip
+"%PYEXE%" -m pip install --upgrade pip -q
 if errorlevel 1 (
   echo [ERRO] pip upgrade falhou.
   exit /b 1
@@ -38,18 +51,38 @@ if errorlevel 1 (
   exit /b 1
 )
 
-call :VenvReady
+call :VenvUsable
 if errorlevel 1 (
-  echo [ERRO] Dependencias instaladas mas import falhou. Apague a pasta .venv e tente de novo.
+  echo [ERRO] Dependencias instaladas mas a API nao importa. Apague a pasta .venv e tente de novo.
   exit /b 1
 )
+
 echo Dependencias instaladas com sucesso.
+endlocal & set "PYEXE=%PYEXE%"
 exit /b 0
 
-:VenvReady
+:VenvUsable
 if not exist "%PYEXE%" exit /b 1
-"%PYEXE%" -c "import sys; import uvicorn; import fastapi; import sqlalchemy; import httpx; import websockets" >nul 2>&1
+
+rem venv copiado de outro PC costuma apontar para Python inexistente
+if exist "%ROOT%\.venv\pyvenv.cfg" (
+  findstr /i /c:"WindowsApps" "%ROOT%\.venv\pyvenv.cfg" >nul 2>&1
+  if not errorlevel 1 exit /b 1
+  for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%ROOT%\.venv\pyvenv.cfg") do (
+    set "KEY=%%A"
+    set "VAL=%%B"
+    if defined VAL for /f "tokens=*" %%X in ("!VAL!") do set "VAL=%%X"
+    for /f "tokens=*" %%X in ("!KEY!") do set "KEY=%%X"
+    if /i "!KEY!"=="home" (
+      if not exist "!VAL!\python.exe" if not exist "!VAL!" exit /b 1
+    )
+  )
+)
+
+"%PYEXE%" -c "import sys; import uvicorn; import fastapi; import sqlalchemy; import httpx" >nul 2>&1
 if errorlevel 1 exit /b 1
+
+cd /d "%ROOT%"
 "%PYEXE%" -c "from app.main import app" >nul 2>&1
 if errorlevel 1 exit /b 1
 exit /b 0

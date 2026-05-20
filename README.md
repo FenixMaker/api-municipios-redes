@@ -226,7 +226,14 @@ Todas as capturas, em ordem, para consulta rápida ou uso em slides.
 
 Duplo clique em **`iniciar-api.bat`** na raiz do projeto.
 
-O script cria ou repara `.venv`, instala dependências, gera `data\ibge_api.db` sintético (3 000 registros) se o banco não existir e sobe a API.
+O script detecta Python 3.10+ no PC, cria ou **repara** `.venv` (se veio de outro computador), instala dependências, gera `data\ibge_api.db` sintético (3 000 registros) se o banco não existir e sobe a API.
+
+| Atalho | Função |
+|--------|--------|
+| `iniciar-api.bat` | Sobe a API e abre o Swagger |
+| `instalar-dependencias.bat` | Recria `.venv` do zero (útil ao copiar o projeto) |
+| `carregar-dados-ibge.bat` | Carga oficial IBGE (internet) |
+| `testar-api.bat` | Executa `pytest` |
 
 | URL | Conteúdo |
 |-----|----------|
@@ -342,7 +349,11 @@ api-municipios-redes/
 ├── data/                   # SQLite (gerado localmente, não versionado)
 ├── presentation/
 ├── iniciar-api.bat
+├── instalar-dependencias.bat
+├── carregar-dados-ibge.bat
 ├── testar-api.bat
+├── _portable-init.bat
+├── _venv-setup.bat
 └── requirements.txt
 ```
 
