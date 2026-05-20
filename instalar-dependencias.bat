@@ -21,7 +21,7 @@ rem Forca recriacao do .venv (util ao copiar o projeto para outro PC)
 if exist "%ROOT%\.venv" (
   echo Removendo .venv antigo...
   rmdir /s /q "%ROOT%\.venv" 2>nul
-  timeout /t 1 /nobreak >nul
+  ping 127.0.0.1 -n 2 >nul
 )
 
 call "%~dp0_venv-setup.bat"

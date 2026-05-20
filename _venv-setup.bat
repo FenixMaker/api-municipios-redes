@@ -28,7 +28,7 @@ if not errorlevel 1 (
 if exist "%ROOT%\.venv" (
   echo [AVISO] .venv ausente, corrompido ou de outro computador — recriando...
   rmdir /s /q "%ROOT%\.venv" 2>nul
-  timeout /t 1 /nobreak >nul
+  ping 127.0.0.1 -n 2 >nul
 )
 
 echo [1/2] Criando ambiente virtual .venv ...
@@ -64,25 +64,12 @@ exit /b 0
 :VenvUsable
 if not exist "%PYEXE%" exit /b 1
 
-rem venv copiado de outro PC costuma apontar para Python inexistente
-if exist "%ROOT%\.venv\pyvenv.cfg" (
-  findstr /i /c:"WindowsApps" "%ROOT%\.venv\pyvenv.cfg" >nul 2>&1
-  if not errorlevel 1 exit /b 1
-  for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%ROOT%\.venv\pyvenv.cfg") do (
-    set "KEY=%%A"
-    set "VAL=%%B"
-    if defined VAL for /f "tokens=*" %%X in ("!VAL!") do set "VAL=%%X"
-    for /f "tokens=*" %%X in ("!KEY!") do set "KEY=%%X"
-    if /i "!KEY!"=="home" (
-      if not exist "!VAL!\python.exe" if not exist "!VAL!" exit /b 1
-    )
-  )
-)
+cd /d "%ROOT%"
 
+rem Teste real: venv de outro PC ou Python removido falha aqui
 "%PYEXE%" -c "import sys; import uvicorn; import fastapi; import sqlalchemy; import httpx" >nul 2>&1
 if errorlevel 1 exit /b 1
 
-cd /d "%ROOT%"
 "%PYEXE%" -c "from app.main import app" >nul 2>&1
 if errorlevel 1 exit /b 1
 exit /b 0
